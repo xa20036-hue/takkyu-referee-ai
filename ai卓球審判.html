@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>卓球審判ai-卓ちゃん</title>
+    <style>
+        :root {
+            --bg-base: #0f172a;
+            --bg-surface: #1e293b;
+            --border: #334155;
+            --text: #f8fafc;
+            --muted: #94a3b8;
+            --sky: #38bdf8;
+            --amber: #fbbf24;
+        }
+        *, *::before, *::after { box-sizing: border-box; }
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            background: var(--bg-base);
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Meiryo", sans-serif;
+            line-height: 1.4;
+            user-select: none;
+        }
+        button, input { font-family: inherit; color: inherit; }
+        button { cursor: pointer; }
+        .hidden { display: none !important; }
+
+        .app-header {
+            background: var(--bg-surface);
+            border-bottom: 1px solid var(--border);
+            padding: 10px 16px;
+            position: sticky;
+            top: 0;
+            z-index: 20;
+        }
+        .header-inner, .app-main { max-width: 1024px; width: 100%; margin: 0 auto; }
+        .header-inner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+        .brand, .header-actions, .calib-btns { display: flex; align-items: center; gap: 8px; }
+        .brand-badge {
+            width: 28px; height: 28px; border-radius: 8px;
+            background: var(--amber); color: #090d16;
+            font-weight: 900; font-size: 13px;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .brand-title { margin: 0; font-size: 15px; font-weight: 700; }
+
+        .btn { border: none; border-radius: 8px; font-weight: 700; font-size: 12px; padding: 6px 12px; }
+        .btn:active { transform: scale(0.97); }
+        .btn-green { background: #059669; color: #fff; }
+        .btn-red { background: #e11d48; color: #fff; padding: 6px 10px; }
+        .btn-sky { background: #0ea5e9; color: #090d16; padding: 8px 16px; }
+
+        .app-main { flex: 1; padding: 12px 16px; display: grid; grid-template-columns: 1fr; gap: 12px; }
+        @media (min-width: 1024px) { .app-main { grid-template-columns: 7fr 5fr; } }
+        .col { display: flex; flex-direction: column; gap: 10px; }
+
+        .video-box {
+            position: relative; width: 100%; aspect-ratio: 16 / 9;
+            background: #020617; border-radius: 12px; overflow: hidden; border: 1px solid var(--border);
+        }
+        #visionCanvas { width: 100%; height: 100%; object-fit: cover; cursor: crosshair; display: block; }
+        .placeholder {
+            position: absolute; inset: 0; background: rgba(15, 23, 42, 0.92);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            text-align: center; padding: 16px;
+        }
+        .placeholder-title { margin: 0 0 4px; font-size: 14px; font-weight: 700; }
+        .placeholder-desc { margin: 0 0 12px; font-size: 12px; color: var(--muted); max-width: 420px; }
+
+        .pill { position: absolute; top: 8px; background: rgba(15, 23, 42, 0.85); padding: 4px 10px; border-radius: 6px; }
+        .pill-status { left: 8px; color: #34d399; font-size: 11px; font-weight: 700; }
+        .pill-engine { right: 8px; color: #7dd3fc; font-size: 10px; font-family: monospace; }
+
+        .panel-box {
+            background: rgba(30, 41, 59, 0.8); border: 1px solid var(--border);
+            border-radius: 12px; padding: 10px; font-size: 12px;
+        }
+        .calib-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+        .btn-calib { padding: 5px 10px; border-radius: 8px; font-size: 12px; font-weight: 700; }
+        .btn-calib[data-kind="table"] { background: rgba(8, 145, 178, 0.3); color: #a5f3fc; border: 1px solid rgba(34, 211, 238, 0.45); }
+        .btn-calib[data-kind="table"].active { background: #22d3ee; color: #090d16; }
+        .btn-calib[data-kind="net"] { background: rgba(245, 158, 11, 0.22); color: #fde68a; border: 1px solid rgba(251, 191, 36, 0.45); }
+        .btn-calib[data-kind="net"].active { background: var(--amber); color: #090d16; }
+        .calib-guide { font-size: 11px; color: #cbd5e1; }
+
+        .sliders-grid, .scores-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        @media (max-width: 639px) { .sliders-grid { grid-template-columns: 1fr; } }
+        .scores-grid { gap: 10px; flex: 1; }
+
+        .slider-card { background: rgba(15, 23, 42, 0.75); padding: 8px; border-radius: 8px; }
+        .slider-head { display: flex; justify-content: space-between; margin-bottom: 4px; }
+        .slider-label { color: var(--muted); }
+        .slider-val { color: var(--sky); font-weight: 700; }
+        input[type=range] { width: 100%; -webkit-appearance: none; appearance: none; background: transparent; }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none; height: 16px; width: 16px; border-radius: 50%;
+            background: var(--sky); cursor: pointer; margin-top: -6px;
+        }
+        input[type=range]::-webkit-slider-runnable-track { height: 4px; background: var(--border); border-radius: 2px; }
+
+        .team-card {
+            border-radius: 16px; padding: 12px;
+            display: flex; flex-direction: column; align-items: center; justify-content: space-between;
+        }
+        .team-card[data-team="A"] {
+            background: rgba(23, 37, 84, 0.75); border: 1px solid rgba(59, 130, 246, 0.45);
+            --tint: #bfdbfe; --btn: rgba(37, 99, 235, 0.3);
+        }
+        .team-card[data-team="B"] {
+            background: rgba(76, 5, 25, 0.75); border: 1px solid rgba(244, 63, 94, 0.45);
+            --tint: #fecdd3; --btn: rgba(225, 29, 72, 0.3);
+        }
+        .team-name {
+            width: 100%; background: transparent; border: none; text-align: center;
+            font-weight: 700; font-size: 14px; color: var(--tint); outline: none;
+        }
+        .add-btn {
+            margin: 8px 0; width: 100%; padding: 20px 8px; border-radius: 12px; border: none;
+            background: var(--btn); display: flex; flex-direction: column; align-items: center;
+        }
+        .score-num { font-size: 56px; font-weight: 900; color: #fff; line-height: 1; }
+        .add-sub { margin-top: 6px; font-size: 11px; font-weight: 700; color: var(--tint); }
+        .sub-btn {
+            width: 100%; padding: 8px; border-radius: 8px; background: var(--bg-surface);
+            border: 1px solid var(--border); font-size: 12px; font-weight: 700;
+        }
+
+        .log-box { background: var(--bg-base); border: 1px solid var(--bg-surface); border-radius: 12px; padding: 10px; }
+        .log-header { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+        .log-clear { background: transparent; border: none; color: var(--muted); font-size: 11px; padding: 0; }
+        .log-list { height: 96px; overflow-y: auto; font-size: 12px; color: #cbd5e1; }
+        .log-muted { color: #64748b; }
+    </style>
+</head>
+<body>
+    <header class="app-header">
+        <div class="header-inner">
+            <div class="brand">
+                <span class="brand-badge">TT</span>
+                <h1 class="brand-title">卓球審判ai-卓ちゃん</h1>
+            </div>
+            <div class="header-actions">
+                <button id="toggleCameraBtn" class="btn btn-green">カメラ起動</button>
+                <button id="resetScoreBtn" class="btn btn-red">0に戻す</button>
+            </div>
+        </div>
+    </header>
+
+    <main class="app-main">
+        <section class="col" aria-label="カメラ映像と解析設定">
+            <div class="video-box">
+                <video id="videoElement" class="hidden" playsinline autoplay muted></video>
+                <canvas id="visionCanvas"></canvas>
+                <div id="cameraPlaceholder" class="placeholder">
+                    <p class="placeholder-title">カメラ映像でボールを検知</p>
+                    <p class="placeholder-desc">台を俯瞰で映し、4隅とネット線を指定できます。スコアの加算・修正はクリック/タップで行えます。</p>
+                    <button id="placeholderStartBtn" class="btn btn-sky">カメラを起動</button>
+                </div>
+                <div id="statusPill" class="pill pill-status hidden">待機中</div>
+                <div id="enginePill" class="pill pill-engine hidden">LITE-CV | SKIP:3 | FPS:--</div>
+            </div>
+
+            <div class="panel-box calib-bar">
+                <div class="calib-btns">
+                    <button id="calibTableBtn" class="btn-calib" data-kind="table">台範囲 (4点)</button>
+                    <button id="calibNetBtn" class="btn-calib" data-kind="net">ネット線 (2点)</button>
+                </div>
+                <span id="calibGuideText" class="calib-guide">台・ネットは標準位置です</span>
+            </div>
+
+            <div class="panel-box sliders-grid">
+                <div class="slider-card">
+                    <div class="slider-head">
+                        <label for="frameSkipSlider" class="slider-label">推論間隔</label>
+                        <span id="frameSkipVal" class="slider-val">3F毎</span>
+                    </div>
+                    <input type="range" id="frameSkipSlider" min="1" max="8" value="3">
+                </div>
+                <div class="slider-card">
+                    <div class="slider-head">
+                        <label for="sensitivitySlider" class="slider-label">検出感度</label>
+                        <span id="sensitivityVal" class="slider-val">65</span>
+                    </div>
+                    <input type="range" id="sensitivitySlider" min="10" max="100" value="65">
+                </div>
+            </div>
+        </section>
+
+        <section class="col" aria-label="スコアボードと得点ログ">
+            <div class="scores-grid">
+                <div class="team-card" data-team="A">
+                    <input type="text" id="nameA" value="卓" aria-label="チームAの名前" class="team-name">
+                    <button id="addPointABtn" class="add-btn">
+                        <span id="scoreA" class="score-num">0</span>
+                        <span class="add-sub">+1 手動</span>
+                    </button>
+                    <button id="subPointABtn" class="sub-btn">-1 手動</button>
+                </div>
+                <div class="team-card" data-team="B">
+                    <input type="text" id="nameB" value="チャン" aria-label="チームBの名前" class="team-name">
+                    <button id="addPointBBtn" class="add-btn">
+                        <span id="scoreB" class="score-num">0</span>
+                        <span class="add-sub">+1 手動</span>
+                    </button>
+                    <button id="subPointBBtn" class="sub-btn">-1 手動</button>
+                </div>
+            </div>
+
+            <div class="log-box">
+                <div class="log-header">
+                    <span><b>得点ログ</b></span>
+                    <button id="clearLogBtn" class="log-clear">消去</button>
+                </div>
+                <div id="scoreLog" class="log-list">
+                    <div class="log-muted">準備完了（クリックで加算・修正、0に戻すでリセット）。</div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        (() => {
+            'use strict';
+
+            // 解析解像度を360x202に抑えつつ事前確保バッファを再利用してメモリ消費を最小化
+            const CFG = {
+                W: 360, H: 202, STEP: 2, RAD: 3,
+                HOLD_MS: 140, DEBOUNCE_MS: 180, COOLDOWN_MS: 1800, TIMEOUT_MS: 3000,
+                TABLE: [{ x: 0.14, y: 0.34 }, { x: 0.86, y: 0.34 }, { x: 0.94, y: 0.82 }, { x: 0.06, y: 0.82 }],
+                NET: { x1: 0.50, y1: 0.32, x2: 0.50, y2: 0.84 }
+            };
+
+            const state = { scores: { A: 0, B: 0 }, active: false, starting: false, sens: 65, skip: 3, mode: 'none' };
+            const v = {
+                frame: 0, fpsTime: 0, fpsCount: 0, fps: 0,
+                ball: null, pred: null, vx: 0, vy: 0, prevVy: 0,
+                seenAt: 0, side: null, rally: false, bounces: 0,
+                bounceSide: null, bounceAt: 0, bouncePos: null, cooldown: 0,
+                poly: CFG.TABLE.map((p) => ({ ...p })),
+                net: { ...CFG.NET },
+                temp: [],
+                // 再利用バッファ（GC・メモリ確保抑制）
+                bufSize: 0,
+                scoreGrid: null,
+                prevLuma: null
+            };
+
+            const $ = (id) => document.getElementById(id);
+            const dom = {
+                video: $('videoElement'), canvas: $('visionCanvas'), placeholder: $('cameraPlaceholder'),
+                status: $('statusPill'), engine: $('enginePill'), camBtn: $('toggleCameraBtn'),
+                tableBtn: $('calibTableBtn'), netBtn: $('calibNetBtn'), guide: $('calibGuideText'),
+                skipVal: $('frameSkipVal'), sensVal: $('sensitivityVal'),
+                scoreA: $('scoreA'), scoreB: $('scoreB'), log: $('scoreLog')
+            };
+            const ctx = dom.canvas.getContext('2d', { willReadFrequently: true });
+            let rafId = null, stream = null;
+
+            function ensureBuffers(cols, rows) {
+                const size = cols * rows;
+                if (v.bufSize !== size) {
+                    v.bufSize = size;
+                    v.scoreGrid = new Float32Array(size);
+                    v.prevLuma = new Float32Array(size);
+                } else {
+                    v.scoreGrid.fill(0);
+                }
+            }
+
+            // イベント設定
+            $('frameSkipSlider').addEventListener('input', (e) => {
+                state.skip = +e.target.value;
+                dom.skipVal.textContent = `${state.skip}F毎`;
+                updateBadge();
+            });
+            $('sensitivitySlider').addEventListener('input', (e) => {
+                state.sens = +e.target.value;
+                dom.sensVal.textContent = `${state.sens}`;
+            });
+            dom.camBtn.addEventListener('click', () => !state.starting && (state.active ? stopCamera() : startCamera()));
+            $('placeholderStartBtn').addEventListener('click', () => !state.starting && !state.active && startCamera());
+            $('resetScoreBtn').addEventListener('click', () => {
+                state.scores.A = state.scores.B = 0;
+                resetRally(0);
+                updateScores();
+                dom.log.innerHTML = '';
+            });
+            $('addPointABtn').addEventListener('click', () => addPoint('A', '手動'));
+            $('addPointBBtn').addEventListener('click', () => addPoint('B', '手動'));
+            $('subPointABtn').addEventListener('click', () => subPoint('A'));
+            $('subPointBBtn').addEventListener('click', () => subPoint('B'));
+            $('clearLogBtn').addEventListener('click', () => { dom.log.innerHTML = ''; });
+            dom.tableBtn.addEventListener('click', () => toggleMode('table'));
+            dom.netBtn.addEventListener('click', () => toggleMode('net'));
+
+            function toggleMode(mode) {
+                v.temp = [];
+                state.mode = state.mode === mode ? 'none' : mode;
+                dom.guide.textContent =
+                    state.mode === 'table' ? '台の4隅をクリック（0/4）' :
+                    state.mode === 'net' ? 'ネットの両端をクリック（0/2）' : '範囲設定を終了しました';
+                dom.tableBtn.classList.toggle('active', state.mode === 'table');
+                dom.netBtn.classList.toggle('active', state.mode === 'net');
+            }
+
+            dom.canvas.addEventListener('click', (e) => {
+                if (state.mode === 'none') return;
+                const r = dom.canvas.getBoundingClientRect();
+                if (!r.width || !r.height) return;
+                v.temp.push({
+                    x: Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)),
+                    y: Math.max(0, Math.min(1, (e.clientY - r.top) / r.height))
+                });
+                const req = state.mode === 'table' ? 4 : 2;
+                if (v.temp.length < req) {
+                    dom.guide.textContent = `${state.mode === 'table' ? '台の角' : 'ネットの端'}をクリック（${v.temp.length}/${req}）`;
+                    return;
+                }
+                if (state.mode === 'table') {
+                    v.poly = v.temp.map((p) => ({ ...p }));
+                    dom.guide.textContent = '台範囲を設定しました';
+                } else {
+                    const [p1, p2] = v.temp;
+                    v.net = { x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y };
+                    dom.guide.textContent = 'ネット線を設定しました';
+                }
+                v.temp = [];
+                state.mode = 'none';
+                dom.tableBtn.classList.remove('active');
+                dom.netBtn.classList.remove('active');
+            });
+
+            function inTable(px, py, w, h) {
+                let inside = false;
+                for (let i = 0, j = 3; i < 4; j = i++) {
+                    const xi = v.poly[i].x * w, yi = v.poly[i].y * h;
+                    const xj = v.poly[j].x * w, yj = v.poly[j].y * h;
+                    if (((yi > py) !== (yj > py)) && (px < ((xj - xi) * (py - yi)) / ((yj - yi) || 1e-6) + xi)) {
+                        inside = !inside;
+                    }
+                }
+                return inside;
+            }
+
+            function getSide(px, py, w, h) {
+                const { x1, y1, x2, y2 } = v.net;
+                return ((x2 * w - x1 * w) * (py - y1 * h) - (y2 * h - y1 * h) * (px - x1 * w)) >= 0 ? 'A' : 'B';
+            }
+
+            async function startCamera() {
+                state.starting = true;
+                try {
+                    if (!navigator.mediaDevices?.getUserMedia) throw 0;
+                    stream = await navigator.mediaDevices.getUserMedia({
+                        video: { facingMode: { ideal: 'environment' }, width: { ideal: 480 }, height: { ideal: 270 } },
+                        audio: false
+                    });
+                    dom.video.srcObject = stream;
+                    await new Promise((res) => (dom.video.readyState >= 1 ? res() : (dom.video.onloadedmetadata = res)));
+                    await dom.video.play();
+                    state.active = true;
+                    v.fpsTime = performance.now();
+                    v.fpsCount = 0;
+                    dom.placeholder.classList.add('hidden');
+                    dom.status.classList.remove('hidden');
+                    dom.engine.classList.remove('hidden');
+                    dom.camBtn.textContent = 'カメラ停止';
+                    rafId = requestAnimationFrame(loop);
+                } catch {
+                    log('0対0 (カメラ起動失敗)');
+                } finally {
+                    state.starting = false;
+                }
+            }
+
+            function stopCamera() {
+                state.active = false;
+                if (rafId) cancelAnimationFrame(rafId);
+                dom.video.pause();
+                stream?.getTracks().forEach((t) => t.stop());
+                stream = null;
+                dom.video.srcObject = null;
+                v.bufSize = 0;
+                v.scoreGrid = v.prevLuma = null;
+                resetRally(0);
+                dom.placeholder.classList.remove('hidden');
+                dom.status.classList.add('hidden');
+                dom.engine.classList.add('hidden');
+                dom.camBtn.textContent = 'カメラ起動';
+            }
+
+            function loop(now) {
+                if (!state.active) return;
+                v.fpsCount++;
+                if (now - v.fpsTime >= 1000) {
+                    v.fps = Math.round((v.fpsCount * 1000) / (now - v.fpsTime));
+                    v.fpsCount = 0;
+                    v.fpsTime = now;
+                }
+
+                if (dom.video.readyState === dom.video.HAVE_ENOUGH_DATA) {
+                    const w = CFG.W;
+                    const h = Math.round((dom.video.videoHeight / dom.video.videoWidth) * w) || CFG.H;
+                    if (dom.canvas.width !== w || dom.canvas.height !== h) {
+                        dom.canvas.width = w;
+                        dom.canvas.height = h;
+                    }
+
+                    ctx.drawImage(dom.video, 0, 0, w, h);
+                    v.frame++;
+
+                    const dt = Date.now() - v.seenAt;
+                    if (v.frame % state.skip === 0) {
+                        const b = detectBall(w, h);
+                        if (b) {
+                            if (v.ball) {
+                                const k = 0.7 / Math.max(1, state.skip);
+                                v.vx = (b.x - v.ball.x) * k + v.vx * 0.3;
+                                v.vy = (b.y - v.ball.y) * k + v.vy * 0.3;
+                            }
+                            v.ball = b;
+                            v.pred = null;
+                            v.seenAt = Date.now();
+                        }
+                    } else if (v.ball && dt < CFG.HOLD_MS) {
+                        v.pred = {
+                            x: Math.max(0, Math.min(w, v.ball.x + v.vx)),
+                            y: Math.max(0, Math.min(h, v.ball.y + v.vy))
+                        };
+                    } else {
+                        v.pred = null;
+                    }
+
+                    const activeBall = dt < CFG.HOLD_MS ? (v.ball || v.pred) : null;
+                    evaluateRally(activeBall, w, h);
+                    drawOverlay(w, h, activeBall);
+                    updateBadge();
+                }
+                rafId = requestAnimationFrame(loop);
+            }
+
+            function detectBall(w, h) {
+                const data = ctx.getImageData(0, 0, w, h).data;
+                const step = CFG.STEP, cols = (w / step) | 0, rows = (h / step) | 0;
+                const hadPrev = v.bufSize === cols * rows;
+                ensureBuffers(cols, rows);
+
+                const diffTh = 12 + (100 - state.sens) * 0.45;
+                const motTh = 7 + (100 - state.sens) * 0.25;
+
+                for (let gy = 0; gy < rows; gy++) {
+                    const rowOff = gy * step * w;
+                    for (let gx = 0; gx < cols; gx++) {
+                        const idx = (rowOff + gx * step) * 4;
+                        const r = data[idx], g = data[idx + 1], b = data[idx + 2];
+                        const gi = gy * cols + gx;
+                        const luma = r * 0.299 + g * 0.587 + b * 0.114;
+                        const motion = hadPrev ? Math.abs(luma - v.prevLuma[gi]) : 255;
+                        v.prevLuma[gi] = luma;
+
+                        if (motion < motTh) continue;
+                        const maxC = r > g ? (r > b ? r : b) : (g > b ? g : b);
+                        if (maxC <= 75 || (r > 248 && g > 248 && b > 248)) continue;
+
+                        const minC = r < g ? (r < b ? r : b) : (g < b ? g : b);
+                        const mean = (r + g + b) / 3;
+                        const variance = ((r - mean) ** 2 + (g - mean) ** 2 + (b - mean) ** 2) / 3;
+                        if (variance < 420) {
+                            const sat = ((maxC - minC) / maxC) * 255;
+                            v.scoreGrid[gi] = maxC * 0.7 + (255 - sat) * 0.25 + motion * 0.3;
+                        }
+                    }
+                }
+
+                const rad = CFG.RAD, recent = v.ball && (Date.now() - v.seenAt < 250);
+                let best = 0, bx = -1, by = -1;
+
+                for (let gy = rad; gy < rows - rad; gy++) {
+                    for (let gx = rad; gx < cols - rad; gx++) {
+                        const val = v.scoreGrid[gy * cols + gx];
+                        if (val <= 0) continue;
+                        const d0 = val - v.scoreGrid[(gy - rad) * cols + gx];
+                        const d1 = val - v.scoreGrid[(gy + rad) * cols + gx];
+                        const d2 = val - v.scoreGrid[gy * cols + (gx - rad)];
+                        const d3 = val - v.scoreGrid[gy * cols + (gx + rad)];
+                        const third = [d0, d1, d2, d3].sort((a, b) => b - a)[2];
+                        if (third > diffTh) {
+                            let s = val;
+                            if (recent && Math.hypot(gx * step - v.ball.x, gy * step - v.ball.y) < 60) s *= 1.4;
+                            if (s > best) { best = s; bx = gx * step; by = gy * step; }
+                        }
+                    }
+                }
+                return best > 0 ? { x: bx, y: by } : null;
+            }
+
+            function resetRally(cd) {
+                v.rally = false; v.bounces = 0; v.bounceSide = null; v.bounceAt = 0;
+                v.side = null; v.ball = v.pred = null; v.vx = v.vy = v.prevVy = 0;
+                if (cd > 0) v.cooldown = Date.now() + cd;
+            }
+
+            function evaluateRally(ball, w, h) {
+                const now = Date.now();
+                if (now < v.cooldown) { dom.status.textContent = '得点確定・待機中'; return; }
+
+                if (ball) {
+                    const side = getSide(ball.x, ball.y, w, h);
+                    const onTable = inTable(ball.x, ball.y, w, h);
+                    if (v.side && v.side !== side) v.bounces = 0;
+                    v.side = side;
+
+                    if (onTable && v.prevVy > 0.5 && v.vy < -0.5 && now - v.bounceAt > CFG.DEBOUNCE_MS) {
+                        v.bounceAt = now;
+                        v.bouncePos = { x: ball.x, y: ball.y, at: now };
+                        if (v.bounceSide === side && v.bounces >= 1) {
+                            if (v.rally) {
+                                resetRally(CFG.COOLDOWN_MS);
+                                addPoint(side === 'A' ? 'B' : 'A', '2バウンド');
+                                return;
+                            }
+                        } else {
+                            const prev = v.bounceSide;
+                            v.bounces = 1;
+                            v.bounceSide = side;
+                            if (!v.rally && prev && prev !== side) v.rally = true;
+                        }
+                    }
+                    if (Math.abs(v.vy) > 0.35) v.prevVy = v.vy;
+                    dom.status.textContent = v.rally ? (onTable ? 'ラリー中(台内)' : 'ラリー中(台外)') : 'ボール捕捉中';
+                } else if (now - v.seenAt > CFG.TIMEOUT_MS) {
+                    if (v.rally) {
+                        const fault = v.bounceSide || v.side || 'A';
+                        resetRally(CFG.COOLDOWN_MS);
+                        addPoint(fault === 'A' ? 'B' : 'A', '消失/アウト');
+                    } else {
+                        resetRally(0);
+                        dom.status.textContent = '待機中';
+                    }
+                }
+            }
+
+            function drawOverlay(w, h, ball) {
+                const now = Date.now();
+                ctx.fillStyle = 'rgba(14,165,233,0.12)';
+                ctx.strokeStyle = 'rgba(56,189,248,0.85)';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                v.poly.forEach((p, i) => (i ? ctx.lineTo(p.x * w, p.y * h) : ctx.moveTo(p.x * w, p.y * h)));
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+
+                ctx.strokeStyle = 'rgba(250,204,21,0.9)';
+                ctx.setLineDash([6, 5]);
+                ctx.beginPath();
+                ctx.moveTo(v.net.x1 * w, v.net.y1 * h);
+                ctx.lineTo(v.net.x2 * w, v.net.y2 * h);
+                ctx.stroke();
+                ctx.setLineDash([]);
+
+                if (v.temp.length) {
+                    ctx.fillStyle = '#facc15';
+                    v.temp.forEach((p) => { ctx.beginPath(); ctx.arc(p.x * w, p.y * h, 4, 0, 6.283); ctx.fill(); });
+                }
+                if (ball) {
+                    ctx.strokeStyle = '#10b981';
+                    ctx.lineWidth = 2.5;
+                    ctx.beginPath();
+                    ctx.arc(ball.x, ball.y, 12, 0, 6.283);
+                    ctx.stroke();
+                }
+                if (v.bouncePos && now - v.bouncePos.at < 500) {
+                    const p = (now - v.bouncePos.at) / 500;
+                    ctx.strokeStyle = `rgba(34,211,238,${1 - p})`;
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.arc(v.bouncePos.x, v.bouncePos.y, 6 + p * 16, 0, 6.283);
+                    ctx.stroke();
+                }
+            }
+
+            function updateBadge() {
+                dom.engine.textContent = `LITE-CV | SKIP:${state.skip} | FPS:${v.fps || '--'}`;
+            }
+
+            function addPoint(team, reason = '手動') {
+                state.scores[team]++;
+                updateScores();
+                log(`${state.scores.A}対${state.scores.B} (${reason})`);
+                try {
+                    if ('speechSynthesis' in window) {
+                        speechSynthesis.cancel();
+                        const u = new SpeechSynthesisUtterance('得点');
+                        u.lang = 'ja-JP';
+                        speechSynthesis.speak(u);
+                    }
+                } catch {}
+            }
+
+            function subPoint(team) {
+                if (state.scores[team] <= 0) return;
+                state.scores[team]--;
+                updateScores();
+                log(`${state.scores.A}対${state.scores.B} (手動)`);
+            }
+
+            function updateScores() {
+                dom.scoreA.textContent = state.scores.A;
+                dom.scoreB.textContent = state.scores.B;
+            }
+
+            function log(msg) {
+                const div = document.createElement('div');
+                div.textContent = msg;
+                dom.log.prepend(div);
+            }
+
+            updateScores();
+        })();
+    </script>
+</body>
+</html>
